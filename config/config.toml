@@ -1,0 +1,19 @@
+[database]
+host = ""
+username = ""
+password = ""
+database = ""
+
+[smtp]
+server = ""
+port = 25
+username = ""
+password = ""
+from = ""
+to = []
+
+[report]
+send_time = "08:00"
+
+[general]
+log_level = "INFO"
