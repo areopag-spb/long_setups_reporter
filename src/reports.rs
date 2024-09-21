@@ -1,7 +1,7 @@
+use crate::models::PartData;
+use eyre::Result;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
-use eyre::Result;
-use crate::models::PartData; 
 
 pub fn generate_html_report(data: &[PartData]) -> Result<String> {
     let mut grouped_by_machine: HashMap<String, Vec<&PartData>> = HashMap::new();
@@ -26,14 +26,12 @@ pub fn generate_html_report(data: &[PartData]) -> Result<String> {
     )?;
 
     for (machine, parts) in grouped_by_machine {
-        writeln!(
-            html,
-            "<h3>{}</h3>",
-            machine
-        )?;
+        writeln!(html, "<h3>{}</h3>", machine)?;
 
         for part in parts {
-            let setup_duration = part.end_setup_time.signed_duration_since(part.start_setup_time);
+            let setup_duration = part
+                .end_setup_time
+                .signed_duration_since(part.start_setup_time);
             let setup_minutes = setup_duration.num_minutes();
             writeln!(
                 html,

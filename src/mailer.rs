@@ -3,7 +3,7 @@ use async_smtp::{
     authentication::{Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS},
     Envelope, SendableEmail, SmtpClient, SmtpTransport,
 };
-use eyre::Result;
+use eyre::{eyre, Result};
 use tokio::{io::BufStream, net::TcpStream};
 use tracing::{debug, error};
 
@@ -35,13 +35,16 @@ impl Mailer {
         })
     }
 
+    pub async fn update(&mut self, settings: &SmtpSettings) -> Result<Self> {
+        Mailer::new(settings).await
+    }
+
     pub async fn send_report(
         &mut self,
         subject: &str,
         parts: &[PartData],
         sender_name: &str,
     ) -> Result<()> {
-        
         let html_body = generate_html_report(parts)?;
         let email = SendableEmail::new(
             self.envelope.clone(),
@@ -49,7 +52,6 @@ impl Mailer {
                 .as_bytes()
                 .to_vec(),
         );
-        // Попытка логина с механизмами по умолчанию
         match self
             .transport
             .try_login(&self.creds, DEFAULT_ENCRYPTED_MECHANISMS)
@@ -71,14 +73,13 @@ impl Mailer {
             }
         }
 
-        // Отправка письма
         if let Err(send_err) = self.transport.send(email).await {
             error!("Email send error: {send_err:#?}");
+            Err(eyre!("Email send error: {send_err:#?}"))
         } else {
             debug!("Email sent successfully");
+            Ok(())
         }
-
-        Ok(())
     }
 
     /// Формирует строку с заголовками и телом письма

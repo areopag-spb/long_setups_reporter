@@ -30,7 +30,8 @@ impl Database {
         // Выполнение SQL-запроса
         let results = self
             .client
-            .simple_query("SELECT 
+            .simple_query(
+                "SELECT 
     PartName, 
     Setup, 
     [Order], 
@@ -46,8 +47,11 @@ WHERE
     ShiftDate = CONVERT(DATE, DATEADD(day, -1, GETDATE()))
     AND DATEDIFF(minute, StartSetupTime, StartMachiningTime) - SetupDowntimes > 180 
 ORDER BY 
-    StartSetupTime DESC;")
-            .await?.into_results().await?;
+    StartSetupTime DESC;",
+            )
+            .await?
+            .into_results()
+            .await?;
 
         let mut data = Vec::new();
         for rows in results {

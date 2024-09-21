@@ -61,7 +61,9 @@ impl PartData {
 
 impl fmt::Display for PartData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let setup_duration = self.end_setup_time.signed_duration_since(self.start_setup_time);
+        let setup_duration = self
+            .end_setup_time
+            .signed_duration_since(self.start_setup_time);
         let setup_minutes = setup_duration.num_minutes();
         write!(
             f,

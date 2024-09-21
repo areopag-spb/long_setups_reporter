@@ -3,6 +3,16 @@ name = "long_setups_reporter"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "lsr"
+path = "src/main.rs"
+
+[package.metadata.winres]
+ProductName = "Long Setup Reporter"
+FileDescription = "Long Setup Reporter"
+OriginalFilename = "lsr.exe"
+LegalCopyright = "dece1ver © 2024"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7.12"
@@ -17,3 +27,13 @@ eyre = "0.6"
 chrono = { version = "0.4", features = ["serde"] }
 async-smtp = "0.9.1"
 tiberius = {version = "0.12.3", features = ["tokio", "tokio-util", "chrono"]}
+
+[profile.release]
+opt-level = 'z'     
+lto = true          
+codegen-units = 1   
+panic = 'abort'     
+strip = true        
+
+[build-dependencies]
+winres = "0.1"
