@@ -17,7 +17,7 @@ use utils::init_logger;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let settings = Settings::new()?;
+    let mut settings = Settings::new()?;
     info!("Конфигурация загружена");
 
     let _guard = init_logger(&settings);
@@ -48,9 +48,10 @@ async fn main() -> Result<()> {
             let duration_until_next = next_run - now;
             //let duration_until_next = TimeDelta::seconds(3);
             info!(
-                "Следующий отчёт в {}, через {} мин.",
+                "Следующий отчёт в {}, через {} мин. {} сек.",
                 next_run.format("%d.%m.%y %H:%M:%S"),
-                duration_until_next.num_minutes()
+                duration_until_next.num_minutes(),
+                duration_until_next.num_seconds(),
             );
             sleep(TokioDuration::from_secs(
                 duration_until_next.num_seconds() as u64
@@ -61,8 +62,15 @@ async fn main() -> Result<()> {
             match db.fetch_report_data().await {
                 Ok(data) => {
                     debug!("Fetched Data:\n{:#?}", &data);
+                    if let Ok(s) = Settings::new() {
+                        settings = s;
+                        debug!("Конфигурация обновлена.");
+                    }
                     if let Err(e) = mailer.update(&settings.smtp).await {
                         warn!("Не удалось обновить параметры почтового клиента.\n{}", e);
+                    }
+                    else {
+                        debug!("Параметры почтового клиента обновлены.");
                     }
                     if let Err(e) = mailer
                         .send_report(
