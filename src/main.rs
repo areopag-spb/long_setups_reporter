@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
             let duration_until_next = next_run - now;
             // let duration_until_next = chrono::TimeDelta::seconds(3); // для тестов
             info!(
-                "Следующий отчёт: {}, через {}:{}:{}",
+                "Следующий отчёт: {}, через {:02}:{:02}:{:02}",
                 next_run.format("%d.%m.%y %H:%M:%S"),
                 duration_until_next.num_hours(),
                 duration_until_next.num_minutes() % 60,
