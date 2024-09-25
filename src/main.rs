@@ -3,6 +3,7 @@ mod db;
 mod mailer;
 mod models;
 mod reports;
+mod tests;
 mod utils;
 
 use chrono::Local;
@@ -10,15 +11,19 @@ use config::Settings;
 use db::Database;
 use eyre::Result;
 use mailer::Mailer;
+use std::sync::Arc;
 use tokio::signal;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::time::{sleep, Duration as TokioDuration};
 use tracing::{debug, error, info, warn};
 use utils::init_logger;
 
+const MAX_RETRY_ATTEMPTS: usize = 3;
+const RETRY_DELAY: u64 = 5;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut settings = Settings::new()?;
-    info!("Конфигурация загружена");
 
     let _guard = init_logger(&settings);
     info!("Приложение запущено");
@@ -26,10 +31,17 @@ async fn main() -> Result<()> {
     debug!("Конфигурация: {:#?}", settings);
     debug!("Guard: {:#?}", _guard);
 
-    let mut db = Database::new(&settings.database).await?;
+    let db = Arc::new(TokioMutex::new(
+        retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, || Database::new(&settings)).await?,
+    ));
     info!("Подключение к базе данных установлено");
 
-    let mut mailer = Mailer::new(&settings.smtp).await?;
+    let mailer = Arc::new(TokioMutex::new(
+        retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, || {
+            Mailer::new(&settings.smtp)
+        })
+        .await?,
+    ));
     info!("Почтовый клиент инициализирован");
 
     let ctrl_c_handler = async {
@@ -46,48 +58,51 @@ async fn main() -> Result<()> {
             let next_run = next_send_time(now, send_time);
 
             let duration_until_next = next_run - now;
-            //let duration_until_next = TimeDelta::seconds(3);
+            // let duration_until_next = chrono::TimeDelta::seconds(3); // для тестов
             info!(
-                "Следующий отчёт в {}, через {} мин. {} сек.",
+                "Следующий отчёт: {}, через {}:{}:{}",
                 next_run.format("%d.%m.%y %H:%M:%S"),
-                duration_until_next.num_minutes(),
-                duration_until_next.num_seconds(),
+                duration_until_next.num_hours(),
+                duration_until_next.num_minutes() % 60,
+                duration_until_next.num_seconds() % 60,
             );
+
             sleep(TokioDuration::from_secs(
-                duration_until_next.num_seconds() as u64
+                (duration_until_next.num_seconds() + 3) as u64
             ))
             .await;
-            sleep(TokioDuration::from_secs(1)).await;
 
-            match db.fetch_report_data().await {
-                Ok(data) => {
-                    debug!("Fetched Data:\n{:#?}", &data);
-                    if let Ok(s) = Settings::new() {
-                        settings = s;
-                        debug!("Конфигурация обновлена.");
-                    }
-                    if let Err(e) = mailer.update(&settings.smtp).await {
-                        warn!("Не удалось обновить параметры почтового клиента.\n{}", e);
-                    }
-                    else {
-                        debug!("Параметры почтового клиента обновлены.");
-                    }
-                    if let Err(e) = mailer
-                        .send_report(
-                            "Ежедневный отчёт по длительным наладкам",
-                            &data,
-                            "Уведомлятель",
-                        )
-                        .await
-                    {
-                        error!("Не удалось отправить отчет: {:?}", e);
-                    } else {
-                        info!("Отчет успешно отправлен");
+            if let Err(e) = settings.update() {
+                warn!("Не удалось обновить параметры приложения.\n{}", e);
+            } else {
+                debug!("Параметры приложения обновлены:\n{:#?}", settings);
+            }
+
+            let result = retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, {
+                let db = Arc::clone(&db);
+                let mailer = Arc::clone(&mailer);
+                move || {
+                    let db = db.clone();
+                    let mailer = mailer.clone();
+                    async move {
+                        // добавляем async move
+                        let mut db = db.lock().await;
+                        let data = db.fetch_report_data().await?;
+                        let mut mailer = mailer.lock().await;
+                        mailer
+                            .send_report(
+                                "Ежедневный отчёт по длительным наладкам",
+                                &data,
+                                "Уведомлятель",
+                            )
+                            .await
                     }
                 }
-                Err(e) => {
-                    error!("Не удалось собрать данные для отчета: {:?}", e);
-                }
+            })
+            .await;
+
+            if let Err(e) = result {
+                error!("Все попытки отправки отчета исчерпаны. Ошибка: {:?}", e);
             }
         }
     };
@@ -100,6 +115,31 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn retry<F, Fut, T>(max_attempts: usize, retry_delay: u64, mut f: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    for attempt in 1..=max_attempts {
+        match f().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                warn!(
+                    "Попытка {} из {} не удалась. Ошибка: {:?}",
+                    attempt, max_attempts, e
+                );
+                if attempt < max_attempts {
+                    info!("Повторная попытка через {} секунд...", retry_delay);
+                    sleep(TokioDuration::from_secs(retry_delay)).await;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+    Err(eyre::eyre!("Все попытки выполнения операции исчерпаны"))
 }
 
 fn parse_time(time_str: &str) -> Result<(u32, u32), eyre::Error> {

@@ -35,10 +35,6 @@ impl Mailer {
         })
     }
 
-    pub async fn update(&mut self, settings: &SmtpSettings) -> Result<Self> {
-        Mailer::new(settings).await
-    }
-
     pub async fn send_report(
         &mut self,
         subject: &str,
@@ -82,7 +78,6 @@ impl Mailer {
         }
     }
 
-    /// Формирует строку с заголовками и телом письма
     pub fn format_email(&self, subject: &str, body: String, sender_name: &str) -> Result<String> {
         let from_email = self
             .envelope
@@ -98,7 +93,6 @@ impl Mailer {
             .collect::<Vec<_>>()
             .join(", ");
 
-        // Формируем строку с заголовками и телом письма
         Ok(format!(
             "From: {}\r\nTo: {}\r\nSubject: {}\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{}",
             from, to, subject, body

@@ -14,6 +14,7 @@ to = []
 
 [report]
 send_time = "08:00"
+setup_limit = 240
 
 [general]
 log_level = "INFO"

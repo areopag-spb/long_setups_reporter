@@ -29,11 +29,12 @@ pub struct SmtpSettings {
 #[derive(Debug, Deserialize)]
 pub struct ReportSettings {
     pub send_time: String, // Format "HH:MM"
+    pub setup_limit: i32,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct GeneralSettings {
-    pub log_level: String, // Новое поле для уровня логирования
+    pub log_level: String,
 }
 
 impl Settings {
@@ -42,5 +43,8 @@ impl Settings {
             .add_source(config::File::with_name("config/config"))
             .build()?;
         cfg.try_deserialize()
+    }
+    pub fn update(&mut self) -> Result<Self, config::ConfigError> {
+        Settings::new()
     }
 }
