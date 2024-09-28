@@ -36,6 +36,16 @@ impl Database {
         Ok(config)
     }
 
+    pub async fn reconnect(&mut self, settings: &Settings) -> Result<()> {
+        let config = Self::create_config(settings)?;
+        let tcp = TcpStream::connect(config.get_addr()).await?;
+        tcp.set_nodelay(true)?;
+        let client = Client::connect(config, tcp.compat_write()).await?;
+
+        self.client = Some(client);
+        Ok(())
+    }
+
     pub async fn fetch_report_data(&mut self) -> Result<Vec<PartData>> {
         if let Some(client) = &mut self.client {
             let results = client

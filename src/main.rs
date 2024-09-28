@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
             );
 
             sleep(TokioDuration::from_secs(
-                (duration_until_next.num_seconds() + 3) as u64
+                (duration_until_next.num_seconds() + 3) as u64,
             ))
             .await;
 
@@ -81,14 +81,24 @@ async fn main() -> Result<()> {
             let result = retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, {
                 let db = Arc::clone(&db);
                 let mailer = Arc::clone(&mailer);
+                let settings = &settings;
                 move || {
                     let db = db.clone();
                     let mailer = mailer.clone();
                     async move {
-                        // добавляем async move
                         let mut db = db.lock().await;
+                        if let Err(e) = db.reconnect(settings).await {
+                            warn!("Не удалось обновить подключение к БД\n{}", e);
+                        } else {
+                            debug!("Подключение к БД обновлено");
+                        }
                         let data = db.fetch_report_data().await?;
                         let mut mailer = mailer.lock().await;
+                        if let Err(e) = mailer.reconnect(&settings.smtp).await {
+                            warn!("Не удалось обновить подключение к почтовому серверу\n{}", e);
+                        } else {
+                            debug!("Подключение к почтовому серверу обновлено");
+                        }
                         mailer
                             .send_report(
                                 "Ежедневный отчёт по длительным наладкам",

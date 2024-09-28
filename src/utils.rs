@@ -9,20 +9,19 @@ use tracing_subscriber::{
     EnvFilter, Layer,
 };
 
-const DEBUG: &str = "DEBUG";
-
 pub fn init_logger(settings: &Settings) -> WorkerGuard {
     if let Some(parent) = Path::new("logs").parent() {
         fs::create_dir_all(parent).expect("Не удалось создать папку для логов");
     }
     let timer = ChronoLocal::new("%d.%m.%Y %H:%M:%S%.3f".to_string());
+    let is_debug = settings.general.log_level.to_uppercase() == "DEBUG";
     let format = fmt::format()
         .pretty()
         .with_level(true)
-        .with_target(true)
-        .with_source_location(settings.general.log_level.to_uppercase() == DEBUG)
-        .with_thread_ids(settings.general.log_level.to_uppercase() == DEBUG)
-        .with_thread_names(settings.general.log_level.to_uppercase() == DEBUG)
+        .with_target(is_debug)
+        .with_source_location(is_debug)
+        .with_thread_ids(is_debug)
+        .with_thread_names(is_debug)
         .with_timer(timer.clone());
     let file_filter = EnvFilter::new(settings.general.log_level.clone());
     let console_filter = EnvFilter::new(settings.general.log_level.clone());

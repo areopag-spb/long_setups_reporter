@@ -35,6 +35,11 @@ impl Mailer {
         })
     }
 
+    pub async fn reconnect(&mut self, smtp_settings: &SmtpSettings) -> Result<()> {
+        *self = Mailer::new(smtp_settings).await?;
+        Ok(())
+    }
+
     pub async fn send_report(
         &mut self,
         subject: &str,
@@ -58,7 +63,7 @@ impl Mailer {
             }
             Err(try_login_err) => {
                 error!("Try Login Error: {try_login_err:#?}");
-                // Logout и повторная попытка с Plain
+
                 if let Err(logout_err) = self.transport.quit().await {
                     error!("Logout Error: {logout_err:#?}");
                     return Err(logout_err.into());
