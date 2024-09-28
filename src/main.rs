@@ -11,6 +11,7 @@ use config::Settings;
 use db::Database;
 use eyre::Result;
 use mailer::Mailer;
+use std::io::Write;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::Mutex as TokioMutex;
@@ -23,6 +24,8 @@ const RETRY_DELAY: u64 = 5;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    print!("\x1B]0;{}\x07", "Long Setup Reporter");
+    std::io::stdout().flush()?;
     let mut settings = Settings::new()?;
 
     let _guard = init_logger(&settings);
