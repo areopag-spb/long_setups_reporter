@@ -24,7 +24,7 @@ impl Mailer {
         let creds = Credentials::new(settings.username.clone(), settings.password.clone());
         let envelope = Envelope::new(
             Some(settings.from.parse().unwrap()),
-            settings.to.iter().map(|r| r.parse()).flatten().collect(),
+            settings.to.iter().flat_map(|r| r.parse()).collect(),
         )
         .unwrap();
 

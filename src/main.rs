@@ -113,6 +113,8 @@ async fn main() -> Result<()> {
 
             if let Err(e) = result {
                 error!("Все попытки отправки отчета исчерпаны. Ошибка: {:?}", e);
+            } else {
+                info!("Отчёт отправлен")
             }
         }
     };
@@ -170,7 +172,7 @@ fn next_send_time(now: chrono::DateTime<Local>, send_time: (u32, u32)) -> chrono
         .and_local_timezone(now.timezone())
         .unwrap();
     if next <= now {
-        next = next + chrono::Duration::days(1);
+        next += chrono::Duration::days(1);
     }
     next
 }

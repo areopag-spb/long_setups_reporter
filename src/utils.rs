@@ -26,7 +26,7 @@ pub fn init_logger(settings: &Settings) -> WorkerGuard {
     let file_filter = EnvFilter::new(settings.general.log_level.clone());
     let console_filter = EnvFilter::new(settings.general.log_level.clone());
 
-    let file_appender = rolling::daily("logs", "app.log");
+    let file_appender = rolling::never("logs", "app.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
     let file_layer = fmt::layer()

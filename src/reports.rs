@@ -9,7 +9,7 @@ pub fn generate_html_report(data: &[PartData]) -> Result<String> {
     for part in data {
         grouped_by_machine
             .entry(part.machine.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(part);
     }
 
