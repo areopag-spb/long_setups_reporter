@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
             );
 
             sleep(TokioDuration::from_secs(
-                (duration_until_next.num_seconds() + 3) as u64,
+                (duration_until_next.num_seconds() + settings.general.send_delay as i64) as u64,
             ))
             .await;
 

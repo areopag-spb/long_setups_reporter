@@ -35,6 +35,7 @@ pub struct ReportSettings {
 #[derive(Debug, Deserialize)]
 pub struct GeneralSettings {
     pub log_level: String,
+    pub send_delay: i32,
 }
 
 impl Settings {

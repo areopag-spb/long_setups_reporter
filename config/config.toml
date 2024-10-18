@@ -18,3 +18,4 @@ setup_limit = 240
 
 [general]
 log_level = "INFO"
+send_delay = 10
