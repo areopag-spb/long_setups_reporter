@@ -1,3 +1,6 @@
+use std::{env, path::PathBuf};
+
+use config::Config;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -40,8 +43,25 @@ pub struct GeneralSettings {
 
 impl Settings {
     pub fn new() -> Result<Self, config::ConfigError> {
-        let cfg = config::Config::builder()
-            .add_source(config::File::with_name("config/config"))
+        let exe_dir = match env::current_exe() {
+            Ok(path) => path.parent().map(PathBuf::from),
+            Err(e) => {
+                return Err(config::ConfigError::Message(format!(
+                    "Ошибка получения пути к исполняемому файлу: {:?}",
+                    e
+                )))
+            }
+        };
+
+        let mut config_path = exe_dir.ok_or_else(|| {
+            config::ConfigError::Message(
+                "Не удалось определить директорию с исполняемым файлом".to_string(),
+            )
+        })?;
+        config_path.push("config/config");
+
+        let cfg = Config::builder()
+            .add_source(config::File::with_name(config_path.to_str().unwrap())) // Преобразуем путь в строку
             .build()?;
         cfg.try_deserialize()
     }

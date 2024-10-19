@@ -17,7 +17,7 @@ use tokio::signal;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::{sleep, Duration as TokioDuration};
 use tracing::{debug, error, info, warn};
-use utils::init_logger;
+use utils::{init_logger, LoggerLayers::Both};
 
 const MAX_RETRY_ATTEMPTS: usize = 3;
 const RETRY_DELAY: u64 = 5;
@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
     std::io::stdout().flush()?;
     let mut settings = Settings::new()?;
 
-    let _guard = init_logger(&settings);
+    let _guard = init_logger(&settings, Both);
     info!("Приложение запущено");
 
     debug!("Конфигурация: {:#?}", settings);
