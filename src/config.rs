@@ -3,7 +3,7 @@ use std::{env, path::PathBuf};
 use config::Config;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub database: DatabaseSettings,
     pub smtp: SmtpSettings,
@@ -11,7 +11,7 @@ pub struct Settings {
     pub general: GeneralSettings,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseSettings {
     pub host: String,
     pub username: String,
@@ -19,7 +19,7 @@ pub struct DatabaseSettings {
     pub database: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SmtpSettings {
     pub server: String,
     pub port: u16,
@@ -29,13 +29,13 @@ pub struct SmtpSettings {
     pub to: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ReportSettings {
     pub send_time: String, // Format "HH:MM"
     pub setup_limit: i32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct GeneralSettings {
     pub log_level: String,
     pub send_delay: i32,
