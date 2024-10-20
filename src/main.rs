@@ -1,24 +1,23 @@
 mod config;
 mod db;
+mod init;
+mod logging;
 mod mailer;
 mod models;
 mod reports;
 mod tests;
 mod utils;
 
-use chrono::Local;
 use config::Settings;
-use db::Database;
 use eyre::Result;
-use mailer::Mailer;
+use init::{init_db, init_mailer};
+use logging::{init_logger, LoggerLayers};
+use reports::{calc_delay, send_report_with_retry};
 use std::io::Write;
 use std::sync::Arc;
 use tokio::signal;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::time::{sleep, Duration as TokioDuration};
 use tracing::{debug, error, info, warn};
-use utils::{init_logger, LoggerLayers::Both};
-use utils::{next_send_time, parse_time, retry, MAX_RETRY_ATTEMPTS, RETRY_DELAY};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,25 +25,10 @@ async fn main() -> Result<()> {
     std::io::stdout().flush()?;
     let mut settings = Settings::new()?;
 
-    let _guard = init_logger(&settings, Both);
+    let _guard = init_logger(&settings, LoggerLayers::Both);
     info!("Приложение запущено");
-
-    debug!("Конфигурация: {:#?}", settings);
-    debug!("Guard: {:#?}", _guard);
-
-    let db = Arc::new(TokioMutex::new(
-        retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, || Database::new(&settings)).await?,
-    ));
-    info!("Подключение к базе данных установлено");
-
-    let mailer = Arc::new(TokioMutex::new(
-        retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, || {
-            Mailer::new(&settings.smtp)
-        })
-        .await?,
-    ));
-    info!("Почтовый клиент инициализирован");
-
+    let db = init_db(&settings).await?;
+    let mailer = init_mailer(&settings).await?;
     let ctrl_c_handler = async {
         signal::ctrl_c()
             .await
@@ -54,24 +38,15 @@ async fn main() -> Result<()> {
 
     let main_task = async {
         loop {
-            let now = Local::now();
-            let send_time = parse_time(&settings.report.send_time).unwrap();
-            let next_run = next_send_time(now, send_time);
+            let secs = match calc_delay(&settings) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Не удалость вычислить время ожидания.\n{}", e);
+                    break;
+                }
+            };
 
-            let duration_until_next = next_run - now;
-            // let duration_until_next = chrono::TimeDelta::seconds(3); // для тестов
-            info!(
-                "Следующий отчёт: {}, через {:02}:{:02}:{:02}",
-                next_run.format("%d.%m.%y %H:%M:%S"),
-                duration_until_next.num_hours(),
-                duration_until_next.num_minutes() % 60,
-                duration_until_next.num_seconds() % 60,
-            );
-
-            sleep(TokioDuration::from_secs(
-                (duration_until_next.num_seconds() + settings.general.send_delay as i64) as u64,
-            ))
-            .await;
+            sleep(TokioDuration::from_secs(secs)).await;
 
             if let Err(e) = settings.update() {
                 warn!("Не удалось обновить параметры приложения.\n{}", e);
@@ -79,43 +54,12 @@ async fn main() -> Result<()> {
                 debug!("Параметры приложения обновлены:\n{:#?}", settings);
             }
 
-            let result = retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, {
-                let db = Arc::clone(&db);
-                let mailer = Arc::clone(&mailer);
-                let settings = &settings;
-                move || {
-                    let db = db.clone();
-                    let mailer = mailer.clone();
-                    async move {
-                        let mut db = db.lock().await;
-                        if let Err(e) = db.reconnect(settings).await {
-                            warn!("Не удалось обновить подключение к БД\n{}", e);
-                        } else {
-                            debug!("Подключение к БД обновлено");
-                        }
-                        let data = db.fetch_report_data().await?;
-                        let mut mailer = mailer.lock().await;
-                        if let Err(e) = mailer.reconnect(&settings.smtp).await {
-                            warn!("Не удалось обновить подключение к почтовому серверу\n{}", e);
-                        } else {
-                            debug!("Подключение к почтовому серверу обновлено");
-                        }
-                        mailer
-                            .send_report(
-                                "Ежедневный отчёт по длительным наладкам",
-                                &data,
-                                "Уведомлятель",
-                            )
-                            .await
-                    }
-                }
-            })
-            .await;
-
-            if let Err(e) = result {
-                error!("Все попытки отправки отчета исчерпаны. Ошибка: {:?}", e);
+            if let Err(e) =
+                send_report_with_retry(Arc::clone(&db), Arc::clone(&mailer), &settings).await
+            {
+                error!("Все попытки отправки отчета исчерпаны: {:?}", e);
             } else {
-                info!("Отчёт отправлен")
+                info!("Отчёт успешно отправлен");
             }
         }
     };

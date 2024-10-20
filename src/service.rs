@@ -1,30 +1,28 @@
 mod config;
 mod db;
+mod init;
+mod logging;
 mod mailer;
 mod models;
 mod reports;
 mod tests;
 mod utils;
 
-use chrono::Local;
 use config::Settings;
-use db::Database;
 use eyre::Result;
-use mailer::Mailer;
+use init::{init_db, init_mailer};
+use logging::{init_logger, LoggerLayers};
+use reports::{calc_delay, send_report_with_retry};
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::time::{sleep, Duration as TokioDuration};
 use tracing::{debug, error, info, warn};
-use utils::{init_logger, LoggerLayers::File};
-use utils::{next_send_time, parse_time, retry, MAX_RETRY_ATTEMPTS, RETRY_DELAY};
 use windows_service::define_windows_service;
 use windows_service::service::{
     ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType,
@@ -75,24 +73,12 @@ fn service_main(_arguments: Vec<std::ffi::OsString>) {
 fn run_service() -> Result<()> {
     let runtime = Runtime::new()?;
     let _ = runtime.block_on(async {
-        let mut settings: Settings = Settings::new().unwrap();
-        let _guard = init_logger(&settings, File);
-        debug!("Конфигурация: {:#?}", settings);
-        debug!("Guard: {:#?}", _guard);
+        let mut settings = Settings::new()?;
 
-        let db = Arc::new(TokioMutex::new(
-            retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, || Database::new(&settings)).await?,
-        ));
-        info!("Подключение к базе данных установлено");
-
-        let mailer = Arc::new(TokioMutex::new(
-            retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, || {
-                Mailer::new(&settings.smtp)
-            })
-            .await?,
-        ));
-        info!("Почтовый клиент инициализирован");
-        info!("Служба инициализирована");
+        let _guard = init_logger(&settings, LoggerLayers::Both);
+        info!("Приложение запущено");
+        let db = init_db(&settings).await?;
+        let mailer = init_mailer(&settings).await?;
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = Arc::clone(&running);
 
@@ -107,7 +93,7 @@ fn run_service() -> Result<()> {
             }
         };
 
-        let status_handle = service_control_handler::register(SERVICE_NAME, event_handler).unwrap();
+        let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)?;
 
         let next_status = ServiceStatus {
             service_type: ServiceType::OWN_PROCESS,
@@ -119,88 +105,44 @@ fn run_service() -> Result<()> {
             process_id: None,
         };
         info!("Установка статуса Running");
-        status_handle.set_service_status(next_status).unwrap();
+        status_handle.set_service_status(next_status)?;
 
-        while running.load(Ordering::SeqCst) {
-            let file_path = Path::new("C:/1.txt");
-            if file_path.exists() {
-                info!("Файл существует");
-            } else {
-                error!("Файл не найден");
-            }
-
-            let now = Local::now();
-            let send_time = parse_time(&settings.report.send_time).unwrap();
-            let next_run = next_send_time(now, send_time);
-
-            let duration_until_next = next_run - now;
-            // let duration_until_next = chrono::TimeDelta::seconds(30); // для тестов
-            info!(
-                "Следующий отчёт: {}, через {:02}:{:02}:{:02}",
-                next_run.format("%d.%m.%y %H:%M:%S"),
-                duration_until_next.num_hours(),
-                duration_until_next.num_minutes() % 60,
-                duration_until_next.num_seconds() % 60,
-            );
-
-            let sleep_duration =
-                (duration_until_next.num_seconds() + settings.general.send_delay as i64) as u64;
-
-            if let Err(e) = settings.update() {
-                warn!("Не удалось обновить параметры приложения.\n{}", e);
-            } else {
-                debug!("Параметры приложения обновлены:\n{:#?}", settings);
-            }
-
-            let result = retry(MAX_RETRY_ATTEMPTS, RETRY_DELAY, {
-                let db = Arc::clone(&db);
-                let mailer = Arc::clone(&mailer);
-                let settings = &settings;
-                move || {
-                    let db = db.clone();
-                    let mailer = mailer.clone();
-                    async move {
-                        let mut db = db.lock().await;
-                        if let Err(e) = db.reconnect(settings).await {
-                            warn!("Не удалось обновить подключение к БД\n{}", e);
-                        } else {
-                            debug!("Подключение к БД обновлено");
-                        }
-                        let data = db.fetch_report_data().await?;
-                        let mut mailer = mailer.lock().await;
-                        if let Err(e) = mailer.reconnect(&settings.smtp).await {
-                            warn!("Не удалось обновить подключение к почтовому серверу\n{}", e);
-                        } else {
-                            debug!("Подключение к почтовому серверу обновлено");
-                        }
-                        mailer
-                            .send_report(
-                                "Ежедневный отчёт по длительным наладкам",
-                                &data,
-                                "Уведомлятель",
-                            )
-                            .await
+        let main_task = async {
+            loop {
+                let secs = match calc_delay(&settings) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!("Не удалость вычислить время ожидания.\n{}", e);
+                        break;
                     }
+                };
+                debug!("{secs}");
+                sleep(TokioDuration::from_secs(secs)).await;
+
+                if let Err(e) = settings.update() {
+                    warn!("Не удалось обновить параметры приложения.\n{}", e);
+                } else {
+                    debug!("Параметры приложения обновлены:\n{:#?}", settings);
                 }
-            })
-            .await;
 
-            if let Err(e) = result {
-                error!("Все попытки отправки отчета исчерпаны. Ошибка: {:?}", e);
-            } else {
-                info!("Отчёт отправлен")
-            }
-
-            tokio::select! {
-                _ = sleep(TokioDuration::from_secs(sleep_duration)) => { }
-                _ = async {
-                    while running.load(Ordering::SeqCst) {
-                        tokio::time::sleep(TokioDuration::from_millis(500)).await;
-                    }
-                } => {
-                    break;
+                if let Err(e) =
+                    send_report_with_retry(Arc::clone(&db), Arc::clone(&mailer), &settings).await
+                {
+                    error!("Все попытки отправки отчета исчерпаны: {:?}", e);
+                } else {
+                    info!("Отчёт успешно отправлен");
                 }
             }
+        };
+
+        tokio::select! {
+            _ = async {
+                while running.load(Ordering::SeqCst) {
+                    tokio::time::sleep(TokioDuration::from_millis(500)).await;
+                }
+                info!("Сигнал завершения службы получен.");
+            } => { }
+            _ = main_task => {}
         }
 
         info!("Остановка службы");
