@@ -29,6 +29,7 @@ async fn main() -> Result<()> {
     info!("Приложение запущено");
     let db = init_db(&settings).await?;
     let mailer = init_mailer(&settings).await?;
+    debug!("Приложение инициализировано с параметрами:\n{settings}");
     let ctrl_c_handler = async {
         signal::ctrl_c()
             .await
@@ -49,9 +50,10 @@ async fn main() -> Result<()> {
             sleep(TokioDuration::from_secs(secs)).await;
 
             if let Err(e) = settings.update() {
-                warn!("Не удалось обновить параметры приложения.\n{}", e);
+                warn!("Не удалось обновить параметры приложения: {}\nИспользуются предыдущие настройки.", e);
+                debug!("Текущие параметры приложения:\n{}", settings);
             } else {
-                debug!("Параметры приложения обновлены:\n{:#?}", settings);
+                debug!("Параметры приложения успешно обновлены:\n{}", settings);
             }
 
             if let Err(e) =

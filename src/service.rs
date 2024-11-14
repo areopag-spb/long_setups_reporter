@@ -55,7 +55,7 @@ fn service_main(_arguments: Vec<std::ffi::OsString>) {
                 service_type: ServiceType::OWN_PROCESS,
                 current_state: ServiceState::Stopped,
                 controls_accepted: windows_service::service::ServiceControlAccept::empty(),
-                exit_code: ServiceExitCode::Win32(1), // Возвращаем код ошибки
+                exit_code: ServiceExitCode::Win32(1),
                 checkpoint: 0,
                 wait_hint: Duration::default(),
                 process_id: None,
@@ -120,9 +120,10 @@ fn run_service() -> Result<()> {
                 sleep(TokioDuration::from_secs(secs)).await;
 
                 if let Err(e) = settings.update() {
-                    warn!("Не удалось обновить параметры приложения.\n{}", e);
+                    warn!("Не удалось обновить параметры приложения: {}\nИспользуются предыдущие настройки.", e);
+                    debug!("Текущие параметры приложения:\n{}", settings);
                 } else {
-                    debug!("Параметры приложения обновлены:\n{:#?}", settings);
+                    debug!("Параметры приложения успешно обновлены:\n{}", settings);
                 }
 
                 if let Err(e) =
