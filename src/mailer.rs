@@ -1,11 +1,15 @@
-use crate::{config::SmtpSettings, models::PartData, reports::generate_html_report};
+use crate::{
+    config::{Settings, SmtpSettings},
+    models::PartData,
+    reports::generate_html_report,
+};
 use async_smtp::{
     authentication::{Credentials, Mechanism, DEFAULT_ENCRYPTED_MECHANISMS},
     Envelope, SendableEmail, SmtpClient, SmtpTransport,
 };
 use eyre::{eyre, Result};
 use tokio::{io::BufStream, net::TcpStream};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 pub struct Mailer {
     transport: SmtpTransport<BufStream<TcpStream>>,
@@ -45,8 +49,13 @@ impl Mailer {
         subject: &str,
         parts: &[PartData],
         sender_name: &str,
+        settings: &Settings,
     ) -> Result<()> {
-        let html_body = generate_html_report(parts)?;
+        if parts.is_empty() {
+            info!("Длительных наладок по заданным критериям не было, отправлять нечего.");
+            return Ok(());
+        }
+        let html_body = generate_html_report(parts, settings)?;
         let email = SendableEmail::new(
             self.envelope.clone(),
             self.format_email(subject, html_body, sender_name)?

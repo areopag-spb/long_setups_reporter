@@ -1,15 +1,17 @@
 use core::fmt;
-use std::{env, path::PathBuf};
+use std::{collections::HashMap, env, path::PathBuf};
 
 use config::Config;
 use serde::Deserialize;
 
+const WIDTH: usize = 30;
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub database: DatabaseSettings,
     pub smtp: SmtpSettings,
     pub report: ReportSettings,
     pub general: GeneralSettings,
+    pub limits: HashMap<String, i32>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -33,7 +35,7 @@ pub struct SmtpSettings {
 #[derive(Debug, Deserialize, Clone)]
 pub struct ReportSettings {
     pub send_time: String, // Format "HH:MM"
-    pub setup_limit: i32,
+    pub default_setup_limit: i64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -59,7 +61,7 @@ impl Settings {
                 "Не удалось определить директорию с исполняемым файлом".to_string(),
             )
         })?;
-        config_path.push("config/config");
+        config_path.push("config/config.toml");
 
         let cfg = Config::builder()
             .add_source(config::File::with_name(config_path.to_str().unwrap()))
@@ -79,34 +81,61 @@ impl Settings {
             }
         }
     }
+    pub fn get_setup_limit(&self, machine: &str) -> i32 {
+        self.limits
+            .get(&machine.to_lowercase())
+            .copied()
+            .unwrap_or(240)
+    }
 }
 
 impl fmt::Display for Settings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "\nБаза данных:")?;
-        writeln!(f, "  Сервер:        {}", self.database.host)?;
-        writeln!(f, "  База:          {}", self.database.database)?;
-        writeln!(f, "  Пользователь:  {}", self.database.username)?;
-        writeln!(f, "  Пароль:        ********")?;
+        writeln!(f, "  {:<WIDTH$}{}", "Сервер:", self.database.host)?;
+        writeln!(f, "  {:<WIDTH$}{}", "База:", self.database.database)?;
+        writeln!(f, "  {:<WIDTH$}{}", "Пользователь:", self.database.username)?;
+        writeln!(f, "  {:<WIDTH$}{}", "Пароль:", "********")?;
 
         writeln!(f, "\nПочтовый сервер:")?;
         writeln!(
             f,
-            "  Сервер:        {}:{}",
-            self.smtp.server, self.smtp.port
+            "  {:<WIDTH$}{}:{}",
+            "Сервер:", self.smtp.server, self.smtp.port
         )?;
-        writeln!(f, "  От кого:       {}", self.smtp.from)?;
-        writeln!(f, "  Кому:          {}", self.smtp.to.join(", "))?;
-        writeln!(f, "  Пользователь:  {}", self.smtp.username)?;
-        writeln!(f, "  Пароль:        ********")?;
+        writeln!(f, "  {:<WIDTH$}{}", "От кого:", self.smtp.from)?;
+        writeln!(f, "  {:<WIDTH$}{}", "Кому:", self.smtp.to.join(", "))?;
+        writeln!(f, "  {:<WIDTH$}{}", "Пользователь:", self.smtp.username)?;
+        writeln!(f, "  {:<WIDTH$}{}", "Пароль:", "********")?;
 
         writeln!(f, "\nНастройки отчета:")?;
-        writeln!(f, "  Время отправки:   {}", self.report.send_time)?;
-        writeln!(f, "  Лимит настройки:  {}", self.report.setup_limit)?;
+        writeln!(
+            f,
+            "  {:<WIDTH$}{}",
+            "Время отправки:", self.report.send_time
+        )?;
+        writeln!(
+            f,
+            "  {:<WIDTH$}{}",
+            "Лимит наладки по умолчанию:", self.report.default_setup_limit
+        )?;
+
+        writeln!(f, "\nЛимиты наладки по оборудованию:")?;
+        for (equipment, limit) in &self.limits {
+            writeln!(f, "  {:<WIDTH$}{} мин", format!("{}:", equipment), limit)?;
+        }
 
         writeln!(f, "\nОбщие настройки:")?;
-        writeln!(f, "  Уровень логирования:   {}", self.general.log_level)?;
-        write!(f, "  Задержка отправки, сек:  {}", self.general.send_delay)?;
+        writeln!(
+            f,
+            "  {:<25}{}",
+            "Уровень логирования:", self.general.log_level
+        )?;
+        write!(
+            f,
+            "  {:<25}{}",
+            "Задержка отправки, сек:", self.general.send_delay
+        )?;
 
         Ok(())
     }

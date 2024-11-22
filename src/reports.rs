@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::info;
 
-pub fn generate_html_report(data: &[PartData]) -> Result<String> {
+pub fn generate_html_report(data: &[PartData], settings: &Settings) -> Result<String> {
     let mut grouped_by_machine: HashMap<String, Vec<&PartData>> = HashMap::new();
 
     for part in data {
@@ -51,6 +51,7 @@ pub fn generate_html_report(data: &[PartData]) -> Result<String> {
                     <p><strong>М/Л:</strong> {}</p>
                     <p><strong>Оператор:</strong> {}</p>
                     <p><strong>Наладка:</strong> {} - {} ({} мин. без учета перерывов)</p>
+                    <p><strong>Лимит наладки:</strong> {} мин.</p>
                     <p><strong>Простои:</strong> {} мин.</p>
                     <p><strong>Комментарий:</strong></p>
                     <pre>{}</pre>
@@ -62,6 +63,7 @@ pub fn generate_html_report(data: &[PartData]) -> Result<String> {
                 part.start_setup_time.format("%H:%M:%S"),
                 part.end_setup_time.format("%H:%M:%S"),
                 setup_minutes,
+                settings.get_setup_limit(&part.machine),
                 part.downtimes,
                 part.operators_comment
             )?;
@@ -104,7 +106,7 @@ pub async fn send_report_with_retry(
         async move {
             let mut db = db.lock().await;
             db.reconnect(&settings).await?;
-            let data = db.fetch_report_data().await?;
+            let data = db.fetch_report_data(&settings).await?;
             let mut mailer = mailer.lock().await;
             mailer.reconnect(&settings.smtp).await?;
             mailer
@@ -112,6 +114,7 @@ pub async fn send_report_with_retry(
                     "Ежедневный отчёт по длительным наладкам",
                     &data,
                     "Уведомлятель",
+                    &settings,
                 )
                 .await
         }

@@ -57,3 +57,17 @@ pub fn next_send_time(
     }
     next
 }
+
+pub trait ToI64 {
+    fn to_i64(&self, default: i64) -> i64;
+}
+
+impl ToI64 for f64 {
+    fn to_i64(&self, default: i64) -> i64 {
+        if self.is_nan() || *self > i64::MAX as f64 || *self < i64::MIN as f64 {
+            default
+        } else {
+            *self as i64
+        }
+    }
+}

@@ -9,23 +9,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_report() -> Result<()> {
-        // Подготовка конфигурации и инициализация объектов
         let settings = Settings::new()?;
         let db = Arc::new(TokioMutex::new(Database::new(&settings).await?));
         let mailer = Arc::new(TokioMutex::new(Mailer::new(&settings.smtp).await?));
 
-        // Получение данных для отчета
         let mut db_lock = db.lock().await;
-        let data = db_lock.fetch_report_data().await?;
+        let data = db_lock.fetch_report_data(&settings).await?;
 
-        // Отправка отчета
         let mut mailer_lock = mailer.lock().await;
         let result = mailer_lock
-            .send_report("Тестовый отчет", &data, "Уведомлятель")
+            .send_report("Тестовый отчет", &data, "Уведомлятель", &settings)
             .await;
-
         assert!(result.is_ok(), "Отчет не был отправлен: {:?}", result);
-
         Ok(())
     }
 }

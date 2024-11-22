@@ -14,7 +14,27 @@ to = []
 
 [report]
 send_time = "08:00"
-setup_limit = 240
+default_setup_limit = 240
+
+[limits]
+"Goodway GS-1500" = 120
+"Hyundai WIA SKT21 №104" = 120
+"Hyundai WIA SKT21 №105" = 120
+"Hyundai L230A" = 120
+"Hyundai XH6300" = 240
+"Mazak QTS200ML" = 120
+"Mazak QTS350" = 120
+"Mazak Nexus 5000" = 240
+"Mazak Integrex i200" = 240
+"Quaser MV134" = 240
+"Victor A110" = 240
+"Rontek HTC550MY" = 120
+"Rontek HTC650M" = 120
+"Rontek VMC40C" = 240
+"Rontek HB1316" = 240
+"Rontek HTC420 №1" = 120
+"Rontek HTC420 №2" = 120
+"Rontek VMC90C" = 240
 
 [general]
 log_level = "INFO"

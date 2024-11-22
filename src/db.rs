@@ -1,4 +1,4 @@
-use crate::{config::Settings, models::PartData};
+use crate::{config::Settings, models::PartData, utils::ToI64};
 use eyre::Result;
 use tiberius::{Client, Config};
 use tokio::net::TcpStream;
@@ -7,7 +7,6 @@ use tracing::debug;
 
 pub struct Database {
     pub client: Option<Client<tokio_util::compat::Compat<TcpStream>>>,
-    setup_limit: i32,
 }
 
 impl Database {
@@ -19,7 +18,6 @@ impl Database {
 
         Ok(Self {
             client: Some(client),
-            setup_limit: settings.report.setup_limit,
         })
     }
 
@@ -46,10 +44,10 @@ impl Database {
         Ok(())
     }
 
-    pub async fn fetch_report_data(&mut self) -> Result<Vec<PartData>> {
+    pub async fn fetch_report_data(&mut self, settings: &Settings) -> Result<Vec<PartData>> {
         if let Some(client) = &mut self.client {
             let results = client
-                .query(
+                .simple_query(
                     "SELECT 
                         PartName, 
                         Setup, 
@@ -64,10 +62,8 @@ impl Database {
                         parts 
                     WHERE 
                         ShiftDate = CONVERT(DATE, DATEADD(day, -1, GETDATE()))
-                        AND DATEDIFF(minute, StartSetupTime, StartMachiningTime) - SetupDowntimes > @P1 
                     ORDER BY 
                         StartSetupTime DESC;",
-                    &[&self.setup_limit],
                 )
                 .await?
                 .into_results()
@@ -77,7 +73,20 @@ impl Database {
             for rows in results {
                 for row in rows {
                     if let Ok(part_data) = PartData::from_sql_row(&row) {
-                        data.push(part_data);
+                        debug!(
+                            "---\nСтанок: {}\nЛимит: {}\n",
+                            part_data.machine,
+                            settings.get_setup_limit(&part_data.machine)
+                        );
+                        debug!("{:#?}", settings.limits);
+                        if (part_data.end_setup_time - part_data.start_setup_time).num_minutes()
+                            - part_data
+                                .downtimes
+                                .to_i64(settings.report.default_setup_limit)
+                            > settings.get_setup_limit(&part_data.machine).into()
+                        {
+                            data.push(part_data);
+                        }
                     } else {
                         debug!("Ошибка при разборе строки данных.");
                     }
