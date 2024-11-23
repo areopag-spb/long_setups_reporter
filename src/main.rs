@@ -47,6 +47,8 @@ async fn main() -> Result<()> {
                 }
             };
 
+            let secs = 5;
+
             sleep(TokioDuration::from_secs(secs)).await;
 
             if let Err(e) = settings.update() {
