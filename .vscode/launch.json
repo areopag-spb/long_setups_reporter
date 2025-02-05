@@ -11,11 +11,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=long_setups_reporter",
+                    "--bin=lsr",
                     "--package=long_setups_reporter"
                 ],
                 "filter": {
-                    "name": "long_setups_reporter",
+                    "name": "lsr",
                     "kind": "bin"
                 }
             },

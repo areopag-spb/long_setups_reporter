@@ -77,41 +77,48 @@ impl Database {
             .await
             .wrap_err("Ошибка получения результатов")?;
 
-        /// Проверяет, превышает ли время наладки установленный лимит
-        fn exceeds_setup_limit(part_data: &PartData, settings: &Settings) -> bool {
-            let setup_duration = part_data.end_setup_time - part_data.start_setup_time;
+        let mut filtered_data: Vec<PartData> = Vec::new();
+
+        for row in results.into_iter().flatten() {
+            let part_data = match PartData::from_sql_row(&row) {
+                Ok(data) => {
+                    debug!("Обработка данных для станка: {}", data.machine);
+                    data
+                }
+                Err(e) => {
+                    debug!("Ошибка при разборе строки данных: {:?}", e);
+                    continue;
+                }
+            };
+
+            let start_setup_time = if let Some(prev_part) = filtered_data.last() {
+                if prev_part.part_name == part_data.part_name
+                    && prev_part.setup == part_data.setup
+                    && prev_part.order == part_data.order
+                {
+                    prev_part.start_setup_time
+                } else {
+                    part_data.start_setup_time
+                }
+            } else {
+                part_data.start_setup_time
+            };
+
+            let setup_duration = part_data.end_setup_time - start_setup_time;
             let actual_minutes = setup_duration.num_minutes()
                 - part_data
                     .downtimes
                     .to_i64(settings.report.default_setup_limit);
             let limit = settings.get_setup_limit(&part_data.machine);
+
             if actual_minutes > limit.into() {
                 debug!(
                     "Превышение лимита наладки:\nСтанок: {}\n{}\nЛимит: {}\nФактическое время: {}",
                     part_data.machine, part_data.part_name, limit, actual_minutes
                 );
-                true
-            } else {
-                false
+                filtered_data.push(part_data);
             }
         }
-
-        // Преобразование и фильтрация данных
-        let filtered_data: Vec<PartData> = results
-            .into_iter()
-            .flatten()
-            .filter_map(|row| match PartData::from_sql_row(&row) {
-                Ok(part_data) => {
-                    debug!("Обработка данных для станка: {}", part_data.machine);
-                    Some(part_data)
-                }
-                Err(e) => {
-                    debug!("Ошибка при разборе строки данных: {:?}", e);
-                    None
-                }
-            })
-            .filter(|part_data| exceeds_setup_limit(part_data, settings))
-            .collect();
 
         Ok(filtered_data)
     }
