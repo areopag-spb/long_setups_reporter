@@ -1,4 +1,4 @@
-use crate::{config::Settings, models::PartData, utils::ToI64};
+use crate::{config::Settings, models::PartData};
 use eyre::{Context, Result};
 use tiberius::{Client, Config};
 use tokio::net::TcpStream;
@@ -83,6 +83,7 @@ impl Database {
             let part_data = match PartData::from_sql_row(&row) {
                 Ok(data) => {
                     debug!("Обработка данных для станка: {}", data.machine);
+                    debug!("{}", data);
                     data
                 }
                 Err(e) => {
@@ -91,24 +92,21 @@ impl Database {
                 }
             };
 
-            let start_setup_time = if let Some(prev_part) = filtered_data.last() {
-                if prev_part.part_name == part_data.part_name
-                    && prev_part.setup == part_data.setup
-                    && prev_part.order == part_data.order
-                {
-                    prev_part.start_setup_time
-                } else {
-                    part_data.start_setup_time
-                }
-            } else {
-                part_data.start_setup_time
-            };
+            // let start_setup_time = if let Some(prev_part) = filtered_data.last() {
+            //     if prev_part.part_name == part_data.part_name
+            //         && prev_part.setup == part_data.setup
+            //         && prev_part.order == part_data.order
+            //     {
+            //         prev_part.start_setup_time
+            //     } else {
+            //         part_data.start_setup_time
+            //     }
+            // } else {
+            //     part_data.start_setup_time
+            // };
 
-            let setup_duration = part_data.end_setup_time - start_setup_time;
-            let actual_minutes = setup_duration.num_minutes()
-                - part_data
-                    .downtimes
-                    .to_i64(settings.report.default_setup_limit);
+            let setup_duration = part_data.end_setup_time - part_data.start_setup_time; // тут было start_setup_time
+            let actual_minutes = (setup_duration - part_data.breaks_between(true)).num_minutes();
             let limit = settings.get_setup_limit(&part_data.machine);
 
             if actual_minutes > limit.into() {

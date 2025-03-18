@@ -40,9 +40,10 @@ pub fn generate_html_report(data: &[PartData], settings: &Settings) -> Result<St
 
         for part in parts {
             let setup_duration = part
-                .end_setup_time
-                .signed_duration_since(part.start_setup_time);
-            let setup_minutes = setup_duration.num_minutes();
+            .end_setup_time
+            .signed_duration_since(part.start_setup_time);
+            let breaks_minutes = part.breaks_between(true).num_minutes();
+            let setup_minutes = setup_duration.num_minutes() - breaks_minutes;
             writeln!(
                 html,
                 "<div class='part-block'>
@@ -50,7 +51,7 @@ pub fn generate_html_report(data: &[PartData], settings: &Settings) -> Result<St
                     <p><strong>Установка:</strong> {}</p>
                     <p><strong>М/Л:</strong> {}</p>
                     <p><strong>Оператор:</strong> {}</p>
-                    <p><strong>Наладка:</strong> {} - {} ({} мин. без учета перерывов)</p>
+                    <p><strong>Наладка:</strong> {} - {} ({} мин.)</p>
                     <p><strong>Лимит наладки:</strong> {} мин.</p>
                     <p><strong>Простои:</strong> {} мин.</p>
                     <p><strong>Комментарий:</strong></p>
