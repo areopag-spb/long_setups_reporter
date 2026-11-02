@@ -23,9 +23,30 @@ use tracing::{debug, error, info, warn};
 async fn main() -> Result<()> {
     print!("\x1B]0;{}\x07", "Long Setup Reporter");
     std::io::stdout().flush()?;
-    let mut settings = Settings::new()?;
+    let args: Vec<String> = std::env::args().collect();
+    let arg_value = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+    let mut settings = match arg_value("--config") {
+        Some(path) => Settings::from_path(std::path::Path::new(&path))?,
+        None => Settings::new()?,
+    };
 
     let _guard = init_logger(&settings, LoggerLayers::Both);
+
+    // Разовая отправка отчёта одному получателю: lsr --send user@domain.com [--config путь]
+    if let Some(addr) = arg_value("--send") {
+        settings.smtp.to = vec![addr.clone()];
+        info!("Разовая отправка отчёта на {}", addr);
+        let db = init_db(&settings).await?;
+        let mailer = init_mailer(&settings).await?;
+        send_report_with_retry(db, mailer, &settings).await?;
+        info!("Отчёт отправлен на {}", addr);
+        return Ok(());
+    }
+
     info!("Приложение запущено");
     let db = init_db(&settings).await?;
     let mailer = init_mailer(&settings).await?;

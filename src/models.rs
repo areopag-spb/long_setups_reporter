@@ -1,7 +1,8 @@
 use chrono::{NaiveDateTime, Timelike, Duration};
 use eyre::Result;
-use std::fmt;
 use tiberius::Row;
+
+pub const MIN_RECORD_MINUTES: i64 = 60;
 
 #[derive(Debug)]
 pub struct PartData {
@@ -9,56 +10,114 @@ pub struct PartData {
     pub setup: i32,
     pub order: String,
     pub machine: String,
+    pub shift: String,
     pub operator: String,
+    pub finished: f64,
+    pub total: i32,
     pub start_setup_time: NaiveDateTime,
     pub end_setup_time: NaiveDateTime,
+    pub end_machining_time: NaiveDateTime,
+    pub setup_downtimes: f64,
+    pub machining_downtimes: f64,
+    pub partial_setup: f64,
     pub operators_comment: String,
-    pub downtimes: f64,
+    pub master_setup_comment: String,
+    pub master_machining_comment: String,
+    pub master_comment: String,
+    pub downtimes_comment: String,
+    /// Лимит наладки из cnc_machines.SetupLimit
+    pub db_limit: Option<i32>,
+}
+
+fn text(row: &Row, col: &str) -> String {
+    row.get::<&str, _>(col).unwrap_or("").trim().to_string()
 }
 
 impl PartData {
     pub fn from_sql_row(row: &Row) -> Result<Self> {
-        let part_name: &str = row
-            .get("PartName")
-            .ok_or_else(|| eyre::eyre!("Missing PartName"))?;
-        let setup: i32 = row
-            .get("Setup")
-            .ok_or_else(|| eyre::eyre!("Missing Setup"))?;
-        let order: &str = row
-            .get("Order")
-            .ok_or_else(|| eyre::eyre!("Missing Order"))?;
-        let machine: &str = row
-            .get("Machine")
-            .ok_or_else(|| eyre::eyre!("Missing Machine"))?;
-        let operator: &str = row
-            .get("Operator")
-            .ok_or_else(|| eyre::eyre!("Missing Operator"))?;
-        let start_setup_time: NaiveDateTime = row
-            .get("StartSetupTime")
-            .ok_or_else(|| eyre::eyre!("Missing StartSetupTime"))?;
-        let end_setup_time: NaiveDateTime = row
-            .get("StartMachiningTime")
-            .ok_or_else(|| eyre::eyre!("Missing EndSetupTime"))?;
-        let operator_comment: &str = row
-            .get("OperatorComment")
-            .ok_or_else(|| eyre::eyre!("Missing Order"))?;
-        let downtimes: f64 = row
-            .get("SetupDowntimes")
-            .ok_or_else(|| eyre::eyre!("Missing Downtimes"))?;
+        let miss = |c: &str| eyre::eyre!("Missing {c}");
         Ok(Self {
-            part_name: part_name.to_string(),
-            setup,
-            order: order.to_string(),
-            machine: machine.to_string(),
-            operator: operator.to_string(),
-            start_setup_time,
-            end_setup_time,
-            operators_comment: operator_comment.to_string(),
-            downtimes,
+            part_name: text(row, "PartName"),
+            setup: row.get("Setup").ok_or_else(|| miss("Setup"))?,
+            order: text(row, "Order"),
+            machine: text(row, "Machine"),
+            shift: text(row, "Shift"),
+            operator: text(row, "Operator"),
+            finished: row.get("FinishedCount").unwrap_or(0.0),
+            total: row.get("TotalCount").unwrap_or(0),
+            start_setup_time: row
+                .get("StartSetupTime")
+                .ok_or_else(|| miss("StartSetupTime"))?,
+            end_setup_time: row
+                .get("StartMachiningTime")
+                .ok_or_else(|| miss("StartMachiningTime"))?,
+            end_machining_time: row
+                .get("EndMachiningTime")
+                .ok_or_else(|| miss("EndMachiningTime"))?,
+            setup_downtimes: row.get("SetupDowntimes").unwrap_or(0.0),
+            machining_downtimes: row.get("MachiningDowntimes").unwrap_or(0.0),
+            partial_setup: row.get("PartialSetupTime").unwrap_or(0.0),
+            operators_comment: text(row, "OperatorComment"),
+            master_setup_comment: text(row, "MasterSetupComment"),
+            master_machining_comment: text(row, "MasterMachiningComment"),
+            master_comment: text(row, "MasterComment"),
+            downtimes_comment: text(row, "SpecifiedDowntimesComment"),
+            db_limit: row.get("SetupLimit"),
         })
     }
 
+    /// Наладка вместе с частичной: за вычетом перерывов и простоев. Сравнивается с лимитом.
+    pub fn setup_with_partial_minutes(&self) -> i64 {
+        let gross = (self.end_setup_time - self.start_setup_time).num_minutes()
+            - self.breaks_between(true).num_minutes();
+        (gross - self.setup_downtimes.round() as i64).max(0)
+    }
+
+    /// Чистая наладка без частичной (частичная - особый простой, факт при ней 0).
+    pub fn setup_minutes(&self) -> i64 {
+        (self.setup_with_partial_minutes() - self.partial_setup.round() as i64).max(0)
+    }
+
+    /// Всё время записи (начало наладки - конец изготовления) за вычетом перерывов.
+    pub fn total_minutes(&self) -> i64 {
+        (self.end_machining_time - self.start_setup_time).num_minutes()
+            - breaks_in(self.start_setup_time, self.end_machining_time, true).num_minutes()
+    }
+
+    pub fn downtime_minutes(&self) -> f64 {
+        self.setup_downtimes + self.machining_downtimes
+    }
+
+    /// Доля простоев от общего времени записи (K2).
+    pub fn downtime_ratio(&self) -> Option<f64> {
+        let total = self.total_minutes();
+        (total > 0).then(|| self.downtime_minutes() / total as f64)
+    }
+
+    /// Граница K2: 15% для Hyundai SKT21, 10% для остальных.
+    pub fn downtime_ratio_limit(&self) -> f64 {
+        if self.machine.to_lowercase().contains("skt21") {
+            0.15
+        } else {
+            0.10
+        }
+    }
+
+    /// Простои оцениваются только для записей не короче часа.
+    pub fn is_downtime_over(&self) -> bool {
+        self.total_minutes() >= MIN_RECORD_MINUTES
+            && self
+                .downtime_ratio()
+                .is_some_and(|r| r > self.downtime_ratio_limit())
+    }
+
     pub fn breaks_between(&self, calc_on_end: bool) -> Duration {
+        breaks_in(self.start_setup_time, self.end_setup_time, calc_on_end)
+    }
+}
+
+pub fn breaks_in(start: NaiveDateTime, end: NaiveDateTime, calc_on_end: bool) -> Duration {
+    {
         let mut day_shift_first_break = NaiveDateTime::new(chrono::NaiveDate::from_ymd_opt(1, 1, 1).unwrap(), chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap());  // 09:00:00
         let mut day_shift_second_break = NaiveDateTime::new(chrono::NaiveDate::from_ymd_opt(1, 1, 1).unwrap(), chrono::NaiveTime::from_hms_opt(12, 30, 0).unwrap()); // 12:30:00
         let mut day_shift_third_break = NaiveDateTime::new(chrono::NaiveDate::from_ymd_opt(1, 1, 1).unwrap(), chrono::NaiveTime::from_hms_opt(15, 15, 0).unwrap());  // 15:15:00
@@ -77,8 +136,8 @@ impl PartData {
         }
 
         let mut breaks = Duration::zero();
-        let start_time = self.start_setup_time.num_seconds_from_midnight();
-        let mut end_time = self.end_setup_time.num_seconds_from_midnight();
+        let start_time = start.num_seconds_from_midnight();
+        let mut end_time = end.num_seconds_from_midnight();
 
         if start_time > end_time {
             night_shift_second_break = night_shift_second_break + Duration::days(1);
@@ -126,30 +185,5 @@ impl PartData {
         }
 
         breaks
-    }
-}
-
-impl fmt::Display for PartData {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let setup_duration = self
-            .end_setup_time
-            .signed_duration_since(self.start_setup_time);
-        let breaks_minutes = self.breaks_between(true).num_minutes();
-        let setup_minutes = setup_duration.num_minutes() - breaks_minutes;
-        
-        write!(
-            f,
-            "Деталь: {}\n Установка: {}\nМ/Л: {}\nОператор: {}\nНаладка: {} - {} ({} мин.)\nПростои: {} мин.\nПерерывы: {} мин.\nКомментарий оператора: {}",
-            self.part_name,
-            self.setup,
-            self.order,
-            self.operator,
-            self.start_setup_time.format("%d.%m.%y %H:%M:%S"),
-            self.end_setup_time.format("%d.%m.%y %H:%M:%S"),
-            setup_minutes,
-            self.downtimes,
-            breaks_minutes,
-            self.operators_comment
-        )
     }
 }

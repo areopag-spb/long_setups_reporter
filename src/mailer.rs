@@ -52,10 +52,13 @@ impl Mailer {
         settings: &Settings,
     ) -> Result<()> {
         if parts.is_empty() {
-            info!("Длительных наладок по заданным критериям не было, отправлять нечего.");
+            info!("За вчерашнюю смену записей нет, отправлять нечего.");
             return Ok(());
         }
-        let html_body = generate_html_report(parts, settings)?;
+        let date = (chrono::Local::now() - chrono::Duration::days(1))
+            .format("%d.%m.%y")
+            .to_string();
+        let html_body = generate_html_report(parts, settings, &date)?;
         let email = SendableEmail::new(
             self.envelope.clone(),
             self.format_email(subject, html_body, sender_name)?

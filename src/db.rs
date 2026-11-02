@@ -44,24 +44,36 @@ impl Database {
         Ok(())
     }
 
-    pub async fn fetch_report_data(&mut self, settings: &Settings) -> Result<Vec<PartData>> {
+    pub async fn fetch_report_data(&mut self, _settings: &Settings) -> Result<Vec<PartData>> {
         const QUERY: &str = r#"
             SELECT
-                PartName,
-                Setup,
-                [Order],
-                Machine,
-                Operator,
-                StartSetupTime,
-                StartMachiningTime,
-                SetupDowntimes,
-                OperatorComment
+                p.PartName,
+                p.Setup,
+                p.[Order],
+                p.Machine,
+                p.Shift,
+                p.Operator,
+                p.FinishedCount,
+                p.TotalCount,
+                p.StartSetupTime,
+                p.StartMachiningTime,
+                p.EndMachiningTime,
+                p.SetupDowntimes,
+                p.MachiningDowntimes,
+                p.PartialSetupTime,
+                p.OperatorComment,
+                p.MasterSetupComment,
+                p.MasterMachiningComment,
+                p.MasterComment,
+                p.SpecifiedDowntimesComment,
+                m.SetupLimit
             FROM
-                parts
+                parts p
+                LEFT JOIN cnc_machines m ON m.Name = p.Machine
             WHERE
-                ShiftDate = CONVERT(DATE, DATEADD(day, -1, GETDATE()))
+                p.ShiftDate = CONVERT(DATE, DATEADD(day, -1, GETDATE()))
             ORDER BY
-                StartSetupTime DESC;
+                p.Machine, p.StartSetupTime;
         "#;
 
         let client = self
@@ -77,47 +89,13 @@ impl Database {
             .await
             .wrap_err("Ошибка получения результатов")?;
 
-        let mut filtered_data: Vec<PartData> = Vec::new();
-
+        let mut data: Vec<PartData> = Vec::new();
         for row in results.into_iter().flatten() {
-            let part_data = match PartData::from_sql_row(&row) {
-                Ok(data) => {
-                    debug!("Обработка данных для станка: {}", data.machine);
-                    debug!("{}", data);
-                    data
-                }
-                Err(e) => {
-                    debug!("Ошибка при разборе строки данных: {:?}", e);
-                    continue;
-                }
-            };
-
-            // let start_setup_time = if let Some(prev_part) = filtered_data.last() {
-            //     if prev_part.part_name == part_data.part_name
-            //         && prev_part.setup == part_data.setup
-            //         && prev_part.order == part_data.order
-            //     {
-            //         prev_part.start_setup_time
-            //     } else {
-            //         part_data.start_setup_time
-            //     }
-            // } else {
-            //     part_data.start_setup_time
-            // };
-
-            let setup_duration = part_data.end_setup_time - part_data.start_setup_time; // тут было start_setup_time
-            let actual_minutes = (setup_duration - part_data.breaks_between(true)).num_minutes();
-            let limit = settings.get_setup_limit(&part_data.machine);
-
-            if actual_minutes > limit.into() {
-                debug!(
-                    "Превышение лимита наладки:\nСтанок: {}\n{}\nЛимит: {}\nФактическое время: {}",
-                    part_data.machine, part_data.part_name, limit, actual_minutes
-                );
-                filtered_data.push(part_data);
+            match PartData::from_sql_row(&row) {
+                Ok(part) => data.push(part),
+                Err(e) => debug!("Ошибка при разборе строки данных: {:?}", e),
             }
         }
-
-        Ok(filtered_data)
+        Ok(data)
     }
 }

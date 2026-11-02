@@ -45,6 +45,15 @@ pub struct GeneralSettings {
 }
 
 impl Settings {
+    #[allow(dead_code)]
+    /// Загрузка из произвольного файла (для запуска с --config).
+    pub fn from_path(path: &std::path::Path) -> Result<Self, config::ConfigError> {
+        let cfg = Config::builder()
+            .add_source(config::File::from(path))
+            .build()?;
+        cfg.try_deserialize()
+    }
+
     pub fn new() -> Result<Self, config::ConfigError> {
         let exe_dir = match env::current_exe() {
             Ok(path) => path.parent().map(PathBuf::from),
