@@ -8,3 +8,6 @@
 *.pem
 *.pfx
 *.key
+
+# Реальный конфиг с паролями
+/config/config.toml

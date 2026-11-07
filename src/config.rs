@@ -14,7 +14,7 @@ pub struct Settings {
     pub limits: HashMap<String, i32>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct DatabaseSettings {
     pub host: String,
     pub username: String,
@@ -22,7 +22,7 @@ pub struct DatabaseSettings {
     pub database: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct SmtpSettings {
     pub server: String,
     pub port: u16,
@@ -30,6 +30,31 @@ pub struct SmtpSettings {
     pub password: String,
     pub from: String,
     pub to: Vec<String>,
+}
+
+// Debug вручную: пароль не должен попадать в логи через {:?} / {:#?}.
+impl fmt::Debug for DatabaseSettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatabaseSettings")
+            .field("host", &self.host)
+            .field("username", &self.username)
+            .field("password", &"********")
+            .field("database", &self.database)
+            .finish()
+    }
+}
+
+impl fmt::Debug for SmtpSettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SmtpSettings")
+            .field("server", &self.server)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &"********")
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
